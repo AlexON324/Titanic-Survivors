@@ -1,0 +1,136 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.cluster import KMeans
+
+def CleanData(data):
+    #Create the cleaned dataset
+    cleanedData = pd.DataFrame(data) 
+
+    #converting columns to numeric
+    cleanedData["PassengerId"] = pd.to_numeric(cleanedData["PassengerId"])
+    cleanedData["Pclass"] = pd.to_numeric(cleanedData["Pclass"])
+    cleanedData["Age"] = pd.to_numeric(cleanedData["Age"],errors='coerce')
+    cleanedData["SibSp"] = pd.to_numeric(cleanedData["SibSp"])
+    cleanedData["Parch"] = pd.to_numeric(cleanedData["Parch"])
+    cleanedData["Fare"] = pd.to_numeric(cleanedData["Fare"])
+
+    if "Survived" in cleanedData:
+        cleanedData["Survived"] = cleanedData["Survived"].map({"0":"Died", "1":"Survived"})
+
+    print(cleanedData.head())
+    return cleanedData
+
+#Create additional features and transform variables 
+def FeatureEngineer(data):
+
+    engineeredData = data
+
+    #bucket the data. convert to string so that NaN values are preserved and can can be one-hot-encoded later. Assumption is that NaN values contain more information than the hierarchy of the values (which is somewhat lost when we convert to string)
+    # quantiles = 3
+    # engineeredData["Timestamp"] = pd.qcut(engineeredData["Timestamp"], q=quantiles,duplicates='drop').astype(str)
+
+    engineeredData["Embarked"] = engineeredData["Embarked"].fillna("Unknown")
+    engineeredData["AgeIsEmpty"] = engineeredData["Age"].isna()
+    engineeredData["SurnamesInCommon"] = 0.0
+    engineeredData["IsALittleMiss"] = 0.0
+    engineeredData["IsALittleMaster"] = 0.0
+    engineeredData["Surname"] = engineeredData["Name"].str.split(',').str[0]
+    miss = "Miss"
+    master = "Master"
+        
+        
+    # ithPosition = 0
+    # for i in engineeredData["Surname"]:
+        
+    #     sursInCommon = 0
+    #     for j in engineeredData["Surname"]:
+    #         if sameName(i, j) == 1:
+    #             sursInCommon += 1
+    #     engineeredData.iloc[ithPosition,engineeredData.columns.get_loc('SurnamesInCommon')] = sursInCommon - 1
+    #     ithPosition += 1
+        
+    ithPosition = 0
+    for i in engineeredData["Name"]:
+
+        if miss in i:
+            engineeredData.iloc[ithPosition,engineeredData.columns.get_loc('IsALittleMiss')] = 1
+        if master in i:
+            engineeredData.iloc[ithPosition,engineeredData.columns.get_loc('IsALittleMaster')] = 1
+        ithPosition += 1
+    
+    
+    
+    # engineeredData["MasterInName"]
+    # engineeredData["MissInName"]
+
+
+    #clean numeric data
+    numericData = engineeredData.select_dtypes(include='number')
+    categoricalData = engineeredData.select_dtypes(exclude='number')
+
+    for numericColumn in numericData:
+        lowerPercentile = numericData[numericColumn].quantile(0.05)
+        upperPercentile = numericData[numericColumn].quantile(0.95)
+        numericData[numericData[numericColumn] < lowerPercentile] = lowerPercentile
+        numericData[numericData[numericColumn] > upperPercentile] = upperPercentile
+
+    #fill missing values with the mean
+    numericData = numericData.apply(lambda x: x.fillna(x.mean()),axis=0)
+
+    #combine categorical and cleaned numericData 
+    engineeredData = pd.concat([numericData, categoricalData], axis=1)
+
+    #drop for now since they are free form fields. could think about adding counts for most common words for example
+    engineeredData = engineeredData.drop(["Cabin", "Ticket", "Name","Surname"], axis=1)
+
+    #to be added  
+    return engineeredData
+
+#adds several columns of clustering
+def AddClustering(data, numClusters, randomState):
+    for numCluster in numClusters:
+        clusters =  CreateKMeansClusters(data, numCluster, randomState)
+        clustersDf = pd.DataFrame({'Cluster_'+str(numCluster): clusters})
+        data = pd.concat([data, clustersDf], axis=1)
+
+    return data
+
+def CreateKMeansClusters(data, numClusters, randomState):
+    #transform data to have mean=0 and standardDeviation=1
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(data)
+
+    #some arguments for the clustering
+    kmeans_kwargs = {
+        "init": "random",
+        "n_init": 10,
+        "max_iter": 300,
+        "random_state": randomState,
+    }
+
+    kmeans = KMeans(n_clusters=numClusters, **kmeans_kwargs)
+    kmeans.fit(scaled_data)
+    print("inertia: " + str(kmeans.inertia_))
+
+    return kmeans.labels_
+
+def OneHotEncode(data):
+    #initialise    
+    encoder = OneHotEncoder(handle_unknown="ignore",sparse=False)
+
+    #split into numeric and categorical. Categorical data to be transformed
+    numericData = data.select_dtypes(include='number')
+    categoricalData = data.select_dtypes(exclude='number')
+
+    encoder.fit(categoricalData)
+    encodedData = pd.DataFrame(encoder.transform(categoricalData),columns=encoder.get_feature_names())
+
+    colCount=0
+    for categoricalColumn in categoricalData:
+        encodedData.columns = encodedData.columns.str.replace("x"+str(colCount) + "_",categoricalColumn + "_")
+        colCount += 1
+
+    data = pd.concat([numericData, encodedData], axis=1)
+
+    return data
