@@ -1,0 +1,114 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.tree import DecisionTreeClassifier
+
+#User defined functions
+from plotExporter import PlotExporter
+from DataCleaningAndFeatureEngineering import CleanData, FeatureEngineer, AddClustering, OneHotEncode
+from ModelTraining import TrainRandomForest, RunModels, PrintResults
+
+########## User Settings ##########
+# User Input - Paths
+working_Dir = "C:/Users/aoneill/.spyder-py3/EDU Python/Portfolio/Titanic Casualties/titanic_data"
+filePath_Data = os.path.join(working_Dir, "./Data/train.csv")
+filePath_Data_Test = os.path.join(working_Dir, "./Data/test.csv")
+folderPath_Output = os.path.join(working_Dir,"./Output")
+
+#Model settings
+numberOfClusters = [5,10,20]
+dependentVariable = "Survived"
+
+# Other Settings
+exportFigures = True # should figures be exported or not
+showFigures = True # should figures be shown during code execution
+randomState = 8675309
+pd.options.mode.chained_assignment = None  # default='warn'
+
+########## Start of Code ##########
+####### Setup #######
+os.chdir(working_Dir)
+os.makedirs(folderPath_Output, exist_ok=True)
+PlotExporter = PlotExporter(folderPath_Output, exportFigures, showFigures)
+
+####### Data Reading##########
+#Note: read all as strings so we can manually set all formats and clean the data
+rawData = pd.read_csv(filePath_Data, dtype=str, index_col=False)
+print(rawData.head(10))
+
+####### Data Cleaning and Feature Engineering #######
+
+#Clean and feature engineer
+data = CleanData(rawData)
+data.to_csv(os.path.join(folderPath_Output,"./CleanedData.csv"), index=False)
+data = FeatureEngineer(data)
+data.to_csv(os.path.join(folderPath_Output,"./FeatureEngineeredData.csv"), index=False)
+print(data.describe(include = 'all'))
+print(data.isna().sum())
+
+#OneHotEncode and add clustering for the independent variables only
+y = data[dependentVariable]
+X = data.drop(dependentVariable, axis=1)
+X = OneHotEncode(X)
+X = AddClustering(X, numberOfClusters, randomState)
+
+data = pd.concat([X,y], axis=1)
+data.to_csv(os.path.join(folderPath_Output,"./FinalData.csv"), index=False)
+
+####### Data Exploration #######
+print(data.describe(include = 'all'))
+PlotExporter.CreateCorrPlot(data)
+
+##Dimensionality Reduction Investigation
+scaler = StandardScaler()
+scaled_data = scaler.fit_transform(X)
+
+#PCA
+pca = PCA(n_components=3)
+principalComponents = pca.fit_transform(scaled_data)
+print(pca.explained_variance_ratio_)
+PlotExporter.Create3dPlot(principalComponents,"PCA")
+
+#TSNE
+tsne = TSNE(n_components=3, verbose=1, perplexity=40, n_iter=300)
+tsneResults = tsne.fit_transform(scaled_data)
+PlotExporter.Create3dPlot(tsneResults,"t-SNE")
+
+####### Model Training  
+# Create X and y train/test
+X = data.drop(dependentVariable, axis=1)
+y = data[dependentVariable]
+X_train, X_test, y_train, y_test  = train_test_split(X, y, test_size=0.25, random_state=randomState)
+
+##### DecisionTreeRegressor
+# #Create a decision tree to get an initial  feeling
+dtree=DecisionTreeClassifier(min_weight_fraction_leaf=0.05, max_leaf_nodes=25)
+dtree.fit(X,y)
+PlotExporter.CreateDecisionTreePlot(dtree,X.columns)
+
+##### RandomForestRegressor
+## Train model
+randomForest = TrainRandomForest(X_train,y_train, randomState)
+
+## Results
+# Make predictions using the testing set
+y_pred = randomForest.predict(X_test)
+y_pred_probability = randomForest.predict_proba(X_test)[:,1]
+
+## Print some results and figures
+PlotExporter.CreatePredictedVsActualScatterPlot(y_pred_probability,y_test, "RandomForest")
+PlotExporter.CreateFeatureImportancePlot(X_train.columns,randomForest.feature_importances_, "RandomForest")
+
+### ROC AUC
+PlotExporter.CreateRocCurve(y_test, y_pred_probability,"Survived", "RandomForest")
+
+
+
+
+
