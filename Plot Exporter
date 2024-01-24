@@ -1,0 +1,119 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sn
+import statsmodels.api as sm
+from sklearn.tree import plot_tree
+from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score
+
+class PlotExporter:
+    def __init__(self,outputPath, exportFigures, showFigures):
+        self.outputPath = outputPath
+        self.exportFigures = exportFigures
+        self.showFigures = showFigures
+
+    def ProcessPlot(self, plot, fileName):
+        if self.exportFigures:
+            plot.savefig(os.path.join(self.outputPath, fileName + '.png'), bbox_inches='tight', dpi=300)
+        if self.showFigures:
+            plot.show()
+        else:
+            plot.clf()
+
+    # Creates a correlation plot of all columns in dataframe
+    def CreateCorrPlot(self,data, suffix=""):
+        corr = data.reindex(sorted(data.columns), axis=1).corr()
+        ax = sn.heatmap(
+            corr, 
+            vmin=-1, vmax=1, center=0,
+            cmap=sn.diverging_palette(20, 220, n=200),
+            square=True
+        )
+        #ax.set_xticks(np.arange(len(data.columns)))
+        ax.set_xticklabels(
+            ax.get_xticklabels(),
+            rotation=45,
+            horizontalalignment='right'
+        )
+        title = "Correlation Plot" + self.__CreateSuffixExtension(suffix)
+        plt.title(title)
+
+        self.ProcessPlot(plt, title)
+
+    # Creates a correlation plot of all columns in dataframe
+    def CreatePredictedVsActualScatterPlot(self,y_pred, y_test, suffix=""):
+        plt.scatter(y_pred, y_test,  color='black')
+        plt.xlabel("Predicted")
+        plt.ylabel("Actual")
+        title = "Predicted vs Actual - " + self.__CreateSuffixExtension(suffix)
+        plt.title(title)
+
+        self.ProcessPlot(plt, title)
+
+    # Creates a correlation plot of all columns in dataframe
+    def CreateFeatureImportancePlot(self,featureNames, featureImportances, suffix=""):
+        x_pos = [i for i, _ in enumerate(featureNames)]
+        importance = pd.DataFrame([featureNames,featureImportances]).transpose()
+        importance.columns = ["Feature","Importance"]
+        importance.sort_values(by=['Importance'],inplace=True)
+
+        plt.bar(x_pos, importance["Importance"], color='green')
+        plt.xlabel("Feature")
+        plt.ylabel("Importance")
+        plt.xticks(x_pos, importance["Feature"], rotation=90)
+        title = "Feature Importance - " + self.__CreateSuffixExtension(suffix)
+        plt.title(title)
+
+        self.ProcessPlot(plt, title)
+
+    def CreateDecisionTreePlot(self,dtree,featureNames, suffix=""):
+        plt.figure(figsize=(25,20))
+        plot_tree(dtree, 
+                feature_names = featureNames, 
+                filled = True, 
+                rounded = True,
+                fontsize=10)
+
+        title = "Decision Tree" + self.__CreateSuffixExtension(suffix)
+        plt.title(title)
+
+        self.ProcessPlot(plt, title)
+
+    def Create3dPlot(self,data, typeName, suffix=""):
+        df = pd.DataFrame(data = data, columns = ['1', '2', '3'])
+
+        fig = plt.figure(figsize = (16,16))
+        ax = fig.add_subplot(111, projection='3d') 
+        ax.set_xlabel(typeName +' 1', fontsize = 15)
+        ax.set_ylabel(typeName +' 2', fontsize = 15)
+        ax.set_zlabel(typeName +' 3', fontsize = 15)
+        ax
+        ax.scatter(df['1'], df['2'],  df['3'])
+
+        title = '3 Component ' + typeName + self.__CreateSuffixExtension(suffix)
+        ax.set_title(title, fontsize = 20)
+
+        self.ProcessPlot(plt, title)
+
+    def CreateRocCurve(self, y_test, y_pred_probability,positiveLabel, suffix=""):
+        # Calculate ROC AUC
+        auc = roc_auc_score(y_test, y_pred_probability)
+        print('ROC AUC=%.3f' % (auc))
+
+        # Create curve
+        fpr, tpr, _ = roc_curve(y_test, y_pred_probability, pos_label=positiveLabel)
+        plt.plot(fpr, tpr, marker='.')
+
+        # Labels
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+
+        title = "RoC AuC Curve" + self.__CreateSuffixExtension(suffix)
+        plt.title(title)
+
+        self.ProcessPlot(plt, title)
+
+    def __CreateSuffixExtension(self,suffix):
+        return "" if suffix == "" else " " + suffix
